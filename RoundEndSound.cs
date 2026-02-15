@@ -16,7 +16,7 @@ namespace RoundEndSound
     public class RoundEndSound : BasePlugin, IPluginConfig<Config.Config>
     {
         public override string ModuleName => "Round End Sound";
-        public override string ModuleVersion => "1.0.3";
+        public override string ModuleVersion => "1.0.4";
         public override string ModuleAuthor => "gleb_khlebov";
         public override string ModuleDescription => "Plays a sound at the end of the round";
         
@@ -82,6 +82,12 @@ namespace RoundEndSound
             
             AddCommand("css_res", "Command that opens the Round End Sound menu",
                 (player, _) => CreateMenu(player));
+
+            AddCommand("css_res_debug", "Shows diagnostic information for Round End Sound",
+                (player, _) => PrintPlayerDiagnostics(player));
+
+            AddCommand("css_res_debug_last", "Replays last selected Round End Sound track for diagnostics",
+                (player, _) => DebugPlayLastTrack(player));
         }
         
         public override void Unload(bool hotReload)
@@ -243,6 +249,43 @@ namespace RoundEndSound
             _lastPlayedTrack = currentSound;
 
             return HookResult.Continue;
+        }
+
+
+        private void PrintPlayerDiagnostics(CCSPlayerController? player)
+        {
+            if (player == null)
+            {
+                _logUtils.Log("css_res_debug is an in-game command.");
+                return;
+            }
+
+            string steamId = player.SteamID.ToString();
+            bool isTracked = _players.TryGetValue(steamId, out ResPlayer? user);
+
+            string enabledState = user?.SoundEnabled == true ? "enabled" : "disabled";
+            string chatState = user?.ChatEnabled == true ? "enabled" : "disabled";
+            string trackedState = isTracked ? "yes" : "no";
+            string lastTrack = _lastPlayedTrack == null
+                ? "none"
+                : $"{_lastPlayedTrack.Name} ({_lastPlayedTrack.Path})";
+
+            _logUtils.Log($"Diagnostic request by {player.PlayerName} ({player.SteamID}): tracked={trackedState}, sound={enabledState}, chat={chatState}, lastTrack={lastTrack}, tracksCount={_trackCount}");
+
+            player.PrintToChat($"{Localizer["chat.Prefix"]}Diagnostic: tracked={trackedState}, sound={enabledState}, chat={chatState}");
+            player.PrintToChat($"{Localizer["chat.Prefix"]}Diagnostic: tracks={_trackCount}, last={lastTrack}");
+        }
+
+        private void DebugPlayLastTrack(CCSPlayerController? player)
+        {
+            if (player == null)
+            {
+                _logUtils.Log("css_res_debug_last is an in-game command.");
+                return;
+            }
+
+            _logUtils.Log($"Diagnostic replay command called by {player.PlayerName} ({player.SteamID}).");
+            PlayLastSound(player);
         }
 
         private void PlaySound(ResPlayer? resPlayer, Sound sound)

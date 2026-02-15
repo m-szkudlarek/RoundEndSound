@@ -15,6 +15,8 @@
 
 ## Commands
 - `!res / css_res` | Main plugin menu
+- `!res_debug / css_res_debug` | Shows diagnostic info for your player
+- `!res_debug_last / css_res_debug_last` | Replays last track for diagnostics
 
 ## How add music to server
 In few:
