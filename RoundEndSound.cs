@@ -16,7 +16,7 @@ namespace RoundEndSound
     public class RoundEndSound : BasePlugin, IPluginConfig<Config.Config>
     {
         public override string ModuleName => "Round End Sound";
-        public override string ModuleVersion => "1.0.2";
+        public override string ModuleVersion => "1.0.4";
         public override string ModuleAuthor => "gleb_khlebov";
         public override string ModuleDescription => "Plays a sound at the end of the round";
         
@@ -82,6 +82,12 @@ namespace RoundEndSound
             
             AddCommand("css_res", "Command that opens the Round End Sound menu",
                 (player, _) => CreateMenu(player));
+
+            AddCommand("css_res_debug", "Shows diagnostic information for Round End Sound",
+                (player, _) => PrintPlayerDiagnostics(player));
+
+            AddCommand("css_res_debug_last", "Replays last selected Round End Sound track for diagnostics",
+                (player, _) => DebugPlayLastTrack(player));
         }
         
         public override void Unload(bool hotReload)
@@ -125,6 +131,8 @@ namespace RoundEndSound
             _tracks = config.MusicList;
             _trackCount = _tracks.Count;
             Config = config;
+
+            _logUtils.Log($"Configuration loaded. Tracks count: {_trackCount}, random mode: {Config.RandomSelectionMode}, default music enabled: {Config.DefaultEnableMusic}");
         }
         
         [GameEventHandler]
@@ -136,6 +144,8 @@ namespace RoundEndSound
             
             if (_playerUtils.IsInvalidPlayer(player))
                 return HookResult.Continue;
+
+            _logUtils.Log($"Player connected: {player.PlayerName} ({player.SteamID})");
 
             ResPlayer resPlayer = new ResPlayer
             {
@@ -157,6 +167,8 @@ namespace RoundEndSound
             
             if (_playerUtils.IsInvalidPlayer(player))
                 return HookResult.Continue;
+
+            _logUtils.Log($"Player disconnected: {player.PlayerName} ({player.SteamID})");
 
             if (!_players.ContainsKey(steamId))
                 return HookResult.Continue;
@@ -187,10 +199,16 @@ namespace RoundEndSound
         public HookResult OnRoundEnd(EventRoundEnd @event, GameEventInfo info)
         {
             if (_players.Count < 1)
+            {
+                _logUtils.Log("Round end: skipped because no players are tracked.");
                 return HookResult.Continue;
+            }
 
             if (_trackCount < 1)
+            {
+                _logUtils.Log("Round end: skipped because music list is empty.");
                 return HookResult.Continue;
+            }
 
             int trackIndex;
             Sound currentSound;
@@ -226,28 +244,91 @@ namespace RoundEndSound
                 PlaySound(player, currentSound);
             }
 
+            _logUtils.Log($"Round end: selected track [{trackIndex}] '{currentSound.Name}' ({currentSound.Path}) for {_players.Count} player(s).");
+
             _lastPlayedTrack = currentSound;
 
             return HookResult.Continue;
         }
 
+
+        private void PrintPlayerDiagnostics(CCSPlayerController? player)
+        {
+            if (player == null)
+            {
+                _logUtils.Log("css_res_debug is an in-game command.");
+                return;
+            }
+
+            string steamId = player.SteamID.ToString();
+            bool isTracked = _players.TryGetValue(steamId, out ResPlayer? user);
+
+            string enabledState = user?.SoundEnabled == true ? "enabled" : "disabled";
+            string chatState = user?.ChatEnabled == true ? "enabled" : "disabled";
+            string trackedState = isTracked ? "yes" : "no";
+            string lastTrack = _lastPlayedTrack == null
+                ? "none"
+                : $"{_lastPlayedTrack.Name} ({_lastPlayedTrack.Path})";
+
+            _logUtils.Log($"Diagnostic request by {player.PlayerName} ({player.SteamID}): tracked={trackedState}, sound={enabledState}, chat={chatState}, lastTrack={lastTrack}, tracksCount={_trackCount}");
+
+            player.PrintToChat($"{Localizer["chat.Prefix"]}Diagnostic: tracked={trackedState}, sound={enabledState}, chat={chatState}");
+            player.PrintToChat($"{Localizer["chat.Prefix"]}Diagnostic: tracks={_trackCount}, last={lastTrack}");
+        }
+
+        private void DebugPlayLastTrack(CCSPlayerController? player)
+        {
+            if (player == null)
+            {
+                _logUtils.Log("css_res_debug_last is an in-game command.");
+                return;
+            }
+
+            _logUtils.Log($"Diagnostic replay command called by {player.PlayerName} ({player.SteamID}).");
+            PlayLastSound(player);
+        }
+
         private void PlaySound(ResPlayer? resPlayer, Sound sound)
         {
             CCSPlayerController? player = Utils.PlayerUtils.GetPlayerFromSteamId(resPlayer!.SteamId);
+
+            if (player == null)
+            {
+                _logUtils.Log($"PlaySound: player with SteamID {resPlayer.SteamId} was not found on server.");
+                return;
+            }
             
             Server.NextFrame(() =>
             {   
                 if (resPlayer.SoundEnabled)
+                {
+                    _logUtils.Log($"PlaySound: executing 'play {sound.Path}' for {player.PlayerName} ({player.SteamID}).");
                     player?.ExecuteClientCommand($"play {sound.Path}");
+                }
+                else
+                {
+                    _logUtils.Log($"PlaySound: sound disabled for {player.PlayerName} ({player.SteamID}).");
+                }
+
                 if (resPlayer.ChatEnabled)
+                {
+                    _logUtils.Log($"PlaySound: sending chat notification for {player.PlayerName} ({player.SteamID}) about '{sound.Name}'.");
                     player?.PrintToChat($"{Localizer["chat.Prefix"]}{Localizer["chat.PlayedSong", sound.Name]}{NewLine}{Localizer["chat.Settings"]}");
+                }
             });
         }
         
         private void PlayLastSound(CCSPlayerController player)
         {
+            if (_lastPlayedTrack == null)
+            {
+                _logUtils.Log($"PlayLastSound: requested by {player.PlayerName} ({player.SteamID}) but there is no previously played track.");
+                return;
+            }
+
             Server.NextFrame(() =>
             {   
+                _logUtils.Log($"PlayLastSound: executing 'play {_lastPlayedTrack!.Path}' for {player.PlayerName} ({player.SteamID}).");
                 player.ExecuteClientCommand($"play {_lastPlayedTrack!.Path}");
                 player.PrintToChat($"{Localizer["chat.Prefix"]}{Localizer["chat.PlayedSong", _lastPlayedTrack.Name]}{NewLine}{Localizer["chat.Settings"]}");
             });
